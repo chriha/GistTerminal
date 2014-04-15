@@ -1,0 +1,233 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+# TODOs
+#  - !!!make this project as a package!!!
+#  - !!!README!!!
+#  - !!!CONTRIBUTING!!!
+#  - !!!Code conventions!!!
+#  - set token via terminal
+#  - check if inserted key is available
+#  - select a specific file to copy
+#  - check for search string in content of file
+#  - check for search string in filename
+
+# CHANGED
+#  - 2014-04-10: ...
+
+import getopt
+import helpers
+import inspect
+import json
+import libs.pyperclip as pyperclip
+import os
+import subprocess
+import sys
+import webbrowser
+
+global CONFIG
+
+
+# determine a module path
+def module_path( local_function ):
+    return os.path.dirname( inspect.getsourcefile( local_function ) )
+
+
+# get data from config file
+class config( object ):
+    config    = None
+    confFile  = 'config.json'
+    conf_path = ''
+
+    def __init__( self ):
+        self.conf_path = module_path( helpers ) + os.sep + self.confFile
+
+        if ( not os.path.exists( self.conf_path ) ):
+            self.createConfig()
+
+        self.config = json.load( open( self.conf_path ) )
+
+    def get( self ):
+        return self.config
+
+    def set( self, key, value ):
+        self.config[key] = value
+        json.dump( self.config, open( self.conf_path, 'w' ), sort_keys = True, indent = 4 )
+        print helpers.textColors().get( 'green' ) + 'New token saved!' + helpers.textColors().end()
+
+    def createConfig( self ):
+        json.dump( { 'api_token':'','gists_url':'https://api.github.com/gists' }, open( self.conf_path, 'w' ), sort_keys = True, indent = 4 )
+
+
+def readId( text, count ):
+    if ( count > 1 ):
+        try:
+            key = raw_input( text )
+        except ( KeyboardInterrupt, SystemExit ):
+            print '\r'
+            sys.exit()
+
+        key = int( key ) - 1
+    else:
+        key = 0
+
+    return key
+
+
+def doSearch( gists, needle ):
+    result = []
+
+    for gist in gists:
+        if gist.get( 'description' ) and needle in gist.get( 'description' ).lower():
+            result.append( gist )
+
+    return result
+
+
+def getGists( url ):
+    return api_request( url )
+
+
+def filterGists( all_gists ):
+    gists = []
+
+    for gist in all_gists:
+        if not gist['files']:
+            continue
+
+        gists.append( gist )
+
+    return gists
+
+
+def apiRequestCurl( url, data = None, token = None, https_proxy = None, method = None ):
+    global CONFIG
+
+    command   = [ "curl", '-K', '-', url ]
+    curl_conf = [ '--header "Authorization: token ' + CONFIG['api_token'] + '"',
+                  '--header "Accept: application/json"',
+                  '--header "Content-Type: application/json"',
+                  "--silent" ]
+
+    if method:
+        curl_conf.append( '--request "%s"' % method )
+
+    with helpers.namedTempfile() as header_output_file:
+        curl_conf.append( '--dump-header "%s"' % header_output_file.name )
+        header_output_file.close()
+
+        with helpers.namedTempfile() as data_file:
+            if data is not None:
+                data_file.write( bytes( data.encode( 'utf8' ) ) )
+                data_file.close()
+                curl_conf.append( '--data-binary "@%s"' % data_file.name )
+
+            process     = subprocess.Popen( command, stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = subprocess.PIPE )
+            response, _ = process.communicate( bytes( '\n'.join( curl_conf ).encode( 'utf8' ) ) )
+            returncode  = process.returncode
+
+            if returncode != 0:
+                raise subprocess.CalledProcessError( returncode, 'curl' )
+
+            with open( header_output_file.name, "r" ) as headers:
+                _, responsecode, message = headers.readline().split( None, 2 )
+                responsecode = int( responsecode )
+
+                if responsecode == 204:  # No Content
+                    return None
+                elif 200 <= responsecode < 300 or responsecode == 100:  # Continue
+                    return json.loads( response.decode( 'utf8', 'ignore' ) )
+                else:
+                    raise helpers.SimpleHTTPError( responsecode, response )
+
+
+CONFIG = config().get()
+api_request = apiRequestCurl if ( 'ssl' not in sys.modules and os.name != 'nt' ) else api_request_native
+
+
+def main( argv ):
+    global CONFIG
+
+    text    = helpers.showText()
+    search  = False
+    isList  = False
+    browser = False
+    copy    = False
+    token   = ''
+    gists   = []
+
+    try:
+       opts, args = getopt.getopt( argv, 'blchs:t:', [ 'browser', 'copy', 'help', 'list', 'search=', 'token=' ] )
+    except getopt.GetoptError as err:
+        print str( err )
+        text.help()
+        sys.exit( 2 )
+
+    for opt, arg in opts:
+        if opt == '-h':
+            text.help()
+            sys.exit()
+        elif opt in ( '-b', '--browser' ):
+            browser = True
+        elif opt in ( '-c', '--copy' ):
+            copy = True
+        elif opt in ( '-l', '--list' ):
+            isList = True
+        elif opt in ( '-s', '--search' ):
+            search = arg
+        elif opt in ( '-t', '--token' ):
+            config().set( 'api_token', arg )
+            sys.exit()
+
+    if ( search != False ):
+        results = doSearch( filterGists( getGists( CONFIG['gists_url'] ) ), search )
+
+        for gist in results:
+            gists.append( gist )
+
+    if ( isList ):
+        gists = filterGists( getGists( CONFIG['gists_url'] ) )
+
+    count = len( gists )
+
+    if ( count > 0 ):
+        print helpers.textColors().get( 'lightgreen' ) + str( count ) + helpers.textColors().end() + ' Gist(s) found:'
+        print '------------------------------'
+        i = 1
+
+        for gist in gists:
+            if ( gist.get( 'public' ) ):
+                color = helpers.textColors().get( 'green' )
+            else:
+                color = helpers.textColors().get( 'yellow' )
+
+            if ( gist.get( 'description' ) ):
+                desc = gist.get( 'description' )
+            else:
+                desc = helpers.textColors().get( 'red' ) + 'no description' + helpers.textColors().end()
+
+            print str( i ) + '. ' +'Gist ' +  color + gist.get( 'id' ) + helpers.textColors().end() + ': ' + desc
+
+            i = i + 1
+
+
+        if ( browser ):
+            key = readId( 'Type in the number (not the ID) you want to open: ', count )
+            webbrowser.open( gists[key].get( 'html_url' ) )
+            print 'Gist is opened in browser!'
+        elif ( copy ):
+            key   = readId( 'Type in the number (not the ID) you want to copy: ', count )
+            gist  = getGists( gists[key]['url'] )
+            files = sorted( gist['files'].keys() )
+            code  = gist['files'][files[0]]['content']
+            pyperclip.setcb( code )
+            print 'Gist copied to Clipboard!'
+
+    else:
+        print helpers.textColors().get( 'red' ) + 'Sorry, no Gists found :(' + helpers.textColors().end()
+
+
+if __name__ == "__main__":
+    main( sys.argv[1:] )
+
+print '\r'
