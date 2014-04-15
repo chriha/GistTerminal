@@ -1,17 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# TODOs
-#  - !!!make this project as a package!!!
-#  - !!!README!!!
-#  - !!!CONTRIBUTING!!!
-#  - !!!Code conventions!!!
-#  - set token via terminal
-#  - check if inserted key is available
-#  - select a specific file to copy
-#  - check for search string in content of file
-#  - check for search string in filename
-
 # CHANGED
 #  - 2014-04-10: ...
 
