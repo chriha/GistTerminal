@@ -13,7 +13,8 @@ Python 2.7+
 
 ### Install GistTerminal
 
-1. 
+1. `git clone https://github.com/chriha/GistTerminal.git /usr/local/GistTerminal` or wherever you want to place the repo
+2. `ln -s /usr/local/GistTerminal/gist ~/.bin/gist` or wherever you want to place the link
 
 ### Set your GitHub API token
 
